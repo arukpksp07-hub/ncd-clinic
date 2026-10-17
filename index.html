@@ -189,17 +189,23 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-// ─── Config ───
-const API_KEY = 'AIzaSyDK_xt-PFOK5kx3rnE-YRyfGyffHDRcEos';
+// ═══════════════════════════════════════════════════════════════
+// Config
+// ═══════════════════════════════════════════════════════════════
 const SHEET_ID = '1iTTjjrjcYwLwj0_FiRcbIfu3Lo-rJz7ba_6QZuyyCWM';
 const SHEET_PATIENTS = 'ชีต1';
 const SHEET_VISITS = 'ประวัติ';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbzWLOq48tCwPqVtqoblQlB24WLeqH8XhrkadJGyG-ksFcQDrsKAhhPQDjefa3R7QECx/exec';
 
-// ─── State ───
+// ═══════════════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════════════
 let allPatients = [];
 let allVisits = [];
 
-// ─── Helpers ───
+// ═══════════════════════════════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════════════════════════════
 function showLoading(t){document.getElementById('loadingText').textContent=t||'กำลังโหลด...';document.getElementById('loadingOverlay').classList.add('show');}
 function hideLoading(){document.getElementById('loadingOverlay').classList.remove('show');}
 function showToast(m,t){var c={success:'bg-success',error:'bg-danger',warning:'bg-warning',info:'bg-info'};var i={success:'bi-check-circle',error:'bi-x-circle',warning:'bi-exclamation-triangle',info:'bi-info-circle'};var id='toast-'+Date.now();var h='<div class="toast align-items-center text-white '+(c[t]||'bg-info')+' border-0" id="'+id+'"><div class="d-flex"><div class="toast-body"><i class="bi '+(i[t]||'bi-info-circle')+' me-2"></i>'+m+'</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div></div>';document.getElementById('toastContainer').insertAdjacentHTML('beforeend',h);new bootstrap.Toast(document.getElementById(id),{delay:5000}).show();}
@@ -207,62 +213,63 @@ function fmtDate(d){if(!d)return'-';var dt=new Date(d);return dt.toLocaleDateStr
 function vbCls(n){return'visit-'+n;}
 function stTxt(s){return{completed:'มาแล้ว',missed:'ผิดนัด',scheduled:'รอนัด'}[s]||s;}
 function stCls(s){return'status-'+s;}
+function getFiscalYear(date){const d=new Date(date);return d.getMonth()>=9?d.getFullYear()+544:d.getFullYear()+543;}
+function toDateString(date){const d=new Date(date);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function addMonths(date,months){const d=new Date(date);d.setMonth(d.getMonth()+months);return d;}
 
-// ─── Read from Google Sheets via API v4 ───
+const THAI_HOLIDAYS=['2026-01-01','2026-02-13','2026-04-06','2026-04-13','2026-04-14','2026-04-15','2026-05-01','2026-05-04','2026-05-22','2026-06-01','2026-07-20','2026-07-21','2026-08-12','2026-10-05','2026-10-23','2026-12-05','2026-12-10','2026-12-31','2027-01-01','2027-02-02','2027-04-06','2027-04-13','2027-04-14','2027-04-15','2027-05-03','2027-05-13','2027-05-20','2027-07-09','2027-07-10','2027-08-12','2027-10-23','2027-12-05','2027-12-10'];
+
+function findMondayInMonth(year,month){
+  for(let day=1;day<=7;day++){
+    const d=new Date(year,month,day);
+    if(d.getDay()===1){const ds=toDateString(d);if(!THAI_HOLIDAYS.includes(ds))return d;}
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Read from Google Sheets via API v4 (public sheet, API key)
+// ═══════════════════════════════════════════════════════════════
+const API_KEY = 'AIzaSyDK_xt-PFOK5kx3rnE-YRyfGyffHDRcEos';
+
 async function readSheet(sheetName) {
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(sheetName)}?key=${API_KEY}`;
   const resp = await fetch(url);
-  if (!resp.ok) {
-    const errorText = await resp.text();
-    console.error('API error:', resp.status, errorText);
-    throw new Error('Failed to read sheet: ' + resp.status + ' - ' + errorText.substring(0, 200));
-  }
+  if (!resp.ok) throw new Error('Read failed: ' + resp.status);
   const data = await resp.json();
   const rows = data.values || [];
-  if (rows.length === 0) return { headers: [], data: [] };
-  const headers = rows[0];
-  const dataRows = rows.slice(1).map(row => {
+  if (rows.length === 0) return [];
+  return rows.slice(1).map(row => {
     const obj = {};
-    headers.forEach((h, i) => { obj[h] = row[i] || ''; });
+    rows[0].forEach((h, i) => { obj[h] = row[i] || ''; });
     return obj;
   });
-  return { headers, data: dataRows };
 }
 
-// ─── Load all data ───
+// ═══════════════════════════════════════════════════════════════
+// Write to Google Sheets via GAS doPost (V8 runtime)
+// ═══════════════════════════════════════════════════════════════
+async function writeToSheet(action, data) {
+  const resp = await fetch(GAS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'action=' + encodeURIComponent(action) + '&data=' + encodeURIComponent(JSON.stringify(data))
+  });
+  return resp.json();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Load all data
+// ═══════════════════════════════════════════════════════════════
 async function loadAllData() {
   showLoading('กำลังโหลดข้อมูล...');
   try {
-    const [patientsRes, visitsRes] = await Promise.all([
+    const [patients, visits] = await Promise.all([
       readSheet(SHEET_PATIENTS),
       readSheet(SHEET_VISITS)
     ]);
-    
-    allPatients = patientsRes.data.map(p => ({
-      hn: String(p['เลข HN'] || ''),
-      name: String(p['ชื่อ-สกุล'] || ''),
-      phone: String(p['เบอร์โทร'] || '-'),
-      max_visit: parseInt(p['มาแล้ว (ครั้ง)']) || 0,
-      last_visit: String(p['วันที่มาล่าสุด'] || ''),
-      next_date: String(p['วันนัดถัดไป'] || ''),
-      next_type: String(p['ประเภทนัดถัดไป'] || ''),
-      next_status: String(p['สถานะนัดถัดไป'] || ''),
-      fiscal_year: String(p['ปีงบประมาณ'] || ''),
-      notes: String(p['หมายเหตุ'] || ''),
-      updated: String(p['อัปเดตล่าสุด'] || '')
-    })).filter(p => p.hn);
-    
-    allVisits = visitsRes.data.map(v => ({
-      hn: String(v['เลข HN'] || ''),
-      name: String(v['ชื่อ-สกุล'] || ''),
-      visit_number: parseInt(v['ครั้งที่']) || 0,
-      date: String(v['วันที่'] || ''),
-      type: String(v['ประเภท'] || ''),
-      status: String(v['สถานะ'] || ''),
-      notes: String(v['หมายเหตุ'] || ''),
-      updated: String(v['อัปเดตล่าสุด'] || '')
-    })).filter(v => v.hn);
-    
+    allPatients = patients.filter(p => p['เลข HN']);
+    allVisits = visits.filter(v => v['เลข HN']);
     renderStats();
     renderPatients(allPatients);
     renderCalendar();
@@ -274,30 +281,29 @@ async function loadAllData() {
   }
 }
 
-// ─── Render ───
+// ═══════════════════════════════════════════════════════════════
+// Render
+// ═══════════════════════════════════════════════════════════════
 function renderStats() {
   document.getElementById('statPatients').textContent = allPatients.length;
-  document.getElementById('statScheduled').textContent = allVisits.filter(v => v.status === 'scheduled').length;
-  document.getElementById('statCompleted').textContent = allVisits.filter(v => v.status === 'completed').length;
-  document.getElementById('statMissed').textContent = allVisits.filter(v => v.status === 'missed').length;
+  document.getElementById('statScheduled').textContent = allVisits.filter(v => v['สถานะ'] === 'scheduled').length;
+  document.getElementById('statCompleted').textContent = allVisits.filter(v => v['สถานะ'] === 'completed').length;
+  document.getElementById('statMissed').textContent = allVisits.filter(v => v['สถานะ'] === 'missed').length;
 }
 
 function renderPatients(patients) {
   var tbody = document.getElementById('patientsTable');
   var search = (document.getElementById('searchPatient').value || '').toLowerCase();
-  var filtered = patients.filter(p => p.hn.toLowerCase().includes(search) || p.name.toLowerCase().includes(search));
-  if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">ไม่พบข้อมูล</td></tr>';
-    return;
-  }
+  var filtered = patients.filter(p => String(p['เลข HN']).toLowerCase().includes(search) || String(p['ชื่อ-สกุล']).toLowerCase().includes(search));
+  if (filtered.length === 0) { tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">ไม่พบข้อมูล</td></tr>'; return; }
   tbody.innerHTML = filtered.map(p => {
-    var pct = Math.round((p.max_visit / 6) * 100);
+    var pct = Math.round((parseInt(p['มาแล้ว (ครั้ง)']) / 6) * 100);
     var bc = pct >= 100 ? 'bg-success' : pct >= 50 ? 'bg-warning' : 'bg-danger';
-    return '<tr><td>' + p.hn + '</td><td>' + p.name + '</td><td>' + p.phone + '</td>' +
-      '<td><div class="progress"><div class="progress-bar ' + bc + '" style="width:' + pct + '%">' + p.max_visit + '/6</div></div></td>' +
-      '<td>' + fmtDate(p.next_date) + '</td>' +
-      '<td class="' + stCls(p.next_status) + '">' + stTxt(p.next_status) + '</td>' +
-      '<td><button class="btn btn-sm btn-info" onclick="openVisitHistory(\'' + p.hn + '\',\'' + p.name + '\')">ประวัติ</button></td></tr>';
+    return '<tr><td>' + p['เลข HN'] + '</td><td>' + p['ชื่อ-สกุล'] + '</td><td>' + p['เบอร์โทร'] + '</td>' +
+      '<td><div class="progress"><div class="progress-bar ' + bc + '" style="width:' + pct + '%">' + p['มาแล้ว (ครั้ง)'] + '/6</div></div></td>' +
+      '<td>' + fmtDate(p['วันนัดถัดไป']) + '</td>' +
+      '<td class="' + stCls(p['สถานะนัดถัดไป']) + '">' + stTxt(p['สถานะนัดถัดไป']) + '</td>' +
+      '<td><button class="btn btn-sm btn-info" onclick="openVisitHistory(\\'' + p['เลข HN'] + '\\',\\'' + p['ชื่อ-สกุล'] + '\\')">ประวัติ</button></td></tr>';
   }).join('');
 }
 
@@ -307,72 +313,90 @@ function renderCalendar() {
   var month = today.getMonth();
   var monthNames = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
   document.getElementById('calendarTitle').textContent = monthNames[month] + ' ' + (year + 543);
-  
   var grid = document.getElementById('calendarGrid');
   var html = '';
   var dayNames = ['อา','จ','อ','พ','พฤ','ศ','ส'];
   dayNames.forEach(d => { html += '<div class="calendar-day header">' + d + '</div>'; });
-  
   var firstDay = new Date(year, month, 1).getDay();
   var daysInMonth = new Date(year, month + 1, 0).getDate();
   var daysInPrevMonth = new Date(year, month, 0).getDate();
   var todayStr = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
-  
-  for (var i = firstDay - 1; i >= 0; i--) {
-    html += '<div class="calendar-day other-month"><div class="day-num">' + (daysInPrevMonth - i) + '</div></div>';
-  }
+  for (var i = firstDay - 1; i >= 0; i--) { html += '<div class="calendar-day other-month"><div class="day-num">' + (daysInPrevMonth - i) + '</div></div>'; }
   for (var day = 1; day <= daysInMonth; day++) {
     var dateStr = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
-    var dayVisits = allVisits.filter(v => v.date === dateStr);
+    var dayVisits = allVisits.filter(v => v['วันที่'] === dateStr);
     var count = dayVisits.length;
     var isToday = dateStr === todayStr;
     var countHtml = '';
-    if (count > 0) {
-      var pct = Math.round((count / 30) * 100);
-      var cls = pct >= 100 ? 'full' : 'available';
-      countHtml = '<div class="apt-count ' + cls + '">' + count + '/30</div>';
-    }
+    if (count > 0) { var pct = Math.round((count / 30) * 100); var cls = pct >= 100 ? 'full' : 'available'; countHtml = '<div class="apt-count ' + cls + '">' + count + '/30</div>'; }
     html += '<div class="calendar-day' + (isToday ? ' today' : '') + '"><div class="day-num">' + day + '</div>' + countHtml + '</div>';
   }
   grid.innerHTML = html;
 }
 
-// ─── Schedule ───
+// ═══════════════════════════════════════════════════════════════
+// Schedule
+// ═══════════════════════════════════════════════════════════════
 function loadSchedule() {
   var date = document.getElementById('scheduleDate').value;
   if (!date) return;
-  var appointments = allVisits.filter(v => v.date === date);
-  var scheduledCount = appointments.filter(v => v.status === 'scheduled').length;
+  var appointments = allVisits.filter(v => v['วันที่'] === date);
+  var scheduledCount = appointments.filter(v => v['สถานะ'] === 'scheduled').length;
   var pct = Math.round((scheduledCount / 30) * 100);
   document.getElementById('capacityBar').style.width = pct + '%';
   document.getElementById('capacityBar').textContent = scheduledCount + '/30';
   document.getElementById('capacityBar').className = 'progress-bar ' + (pct >= 100 ? 'bg-danger' : pct >= 80 ? 'bg-warning' : 'bg-success');
-  
   var div = document.getElementById('scheduleContent');
-  if (appointments.length === 0) {
-    div.innerHTML = '<p class="text-muted text-center">ไม่มีการนัด</p>';
-    return;
-  }
-  div.innerHTML = '<table class="table table-sm"><thead><tr><th>ครั้ง</th><th>HN</th><th>ชื่อ</th><th>ประเภท</th><th>สถานะ</th></tr></thead><tbody>' +
-    appointments.map(a => '<tr><td><span class="visit-badge ' + vbCls(a.visit_number) + '">' + a.visit_number + '</span></td><td>' + a.hn + '</td><td>' + a.name + '</td><td>' + a.type + '</td><td class="' + stCls(a.status) + '">' + stTxt(a.status) + '</td></tr>').join('') +
+  if (appointments.length === 0) { div.innerHTML = '<p class="text-muted text-center">ไม่มีการนัด</p>'; return; }
+  div.innerHTML = '<table class="table table-sm"><thead><tr><th>ครั้ง</th><th>HN</th><th>ชื่อ</th><th>ประเภท</th><th>สถานะ</th><th>จัดการ</th></tr></thead><tbody>' +
+    appointments.map(a => '<tr><td><span class="visit-badge ' + vbCls(a['ครั้งที่']) + '">' + a['ครั้งที่'] + '</span></td><td>' + a['เลข HN'] + '</td><td>' + a['ชื่อ-สกุล'] + '</td><td>' + a['ประเภท'] + '</td><td class="' + stCls(a['สถานะ']) + '">' + stTxt(a['สถานะ']) + '</td><td>' + (a['สถานะ'] === 'scheduled' ? '<button class="btn btn-sm btn-success" onclick="markDone(\\'' + a['เลข HN'] + '\\',\\'' + a['วันที่'] + '\\')">มาแล้ว</button> <button class="btn btn-sm btn-warning" onclick="markMiss(\\'' + a['เลข HN'] + '\\',\\'' + a['วันที่'] + '\\')">ผิดนัด</button> <button class="btn btn-sm btn-info" onclick="openEditApt(\\'' + a['เลข HN'] + '\\',\\'' + a['ชื่อ-สกุล'] + '\\',\\'' + a['วันที่'] + '\\',\\'' + a['ประเภท'] + '\\')">แก้ไข</button>' : '') + '</td></tr>').join('') +
     '</tbody></table>';
 }
 
-// ─── Visit History ───
+function markDone(hn, date) { showLoading('...'); writeToSheet('updateVisitStatus', {hn: hn, date: date, status: 'มาแล้ว'}).then(r => { if (r.success) { showToast('บันทึก: มาแล้ว', 'success'); loadSchedule(); loadStats(); } else showToast(r.error || 'ผิดพลาด', 'error'); }).catch(e => showToast(e.message, 'error')).finally(hideLoading); }
+function markMiss(hn, date) { showLoading('...'); writeToSheet('updateVisitStatus', {hn: hn, date: date, status: 'ผิดนัด'}).then(r => { if (r.success) { showToast('บันทึก: ผิดนัด', 'warning'); loadSchedule(); loadStats(); } else showToast(r.error || 'ผิดพลาด', 'error'); }).catch(e => showToast(e.message, 'error')).finally(hideLoading); }
+
+function openEditApt(hn, name, date, type) {
+  document.getElementById('editName').textContent = name;
+  document.getElementById('editHN').textContent = hn;
+  document.getElementById('editDate').value = date;
+  document.getElementById('editType').value = type;
+  new bootstrap.Modal(document.getElementById('editAptModal')).show();
+  document.getElementById('btnEditApt').onclick = async () => {
+    var newDate = document.getElementById('editDate').value;
+    var newType = document.getElementById('editType').value;
+    showLoading('...');
+    try {
+      var r = await writeToSheet('updateVisit', {hn: hn, date: newDate, type: newType});
+      if (r.success) { showToast('แก้ไขสำเร็จ', 'success'); bootstrap.Modal.getInstance(document.getElementById('editAptModal')).hide(); loadSchedule(); loadPatients(); loadStats(); }
+      else showToast(r.error, 'error');
+    } catch (e) { showToast(e.message, 'error'); }
+    finally { hideLoading(); }
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Visit History
+// ═══════════════════════════════════════════════════════════════
 function openVisitHistory(hn, name) {
   document.getElementById('historyName').textContent = name;
   document.getElementById('historyHN').textContent = hn;
-  var visits = allVisits.filter(v => v.hn === hn).sort((a, b) => a.visit_number - b.visit_number);
+  var visits = allVisits.filter(v => v['เลข HN'] === hn).sort((a, b) => parseInt(a['ครั้งที่']) - parseInt(b['ครั้งที่']));
   var div = document.getElementById('visitHistoryContent');
-  if (visits.length === 0) {
-    div.innerHTML = '<p class="text-muted">ไม่มีประวัติ</p>';
-  } else {
-    var html = '<table class="table table-sm"><thead><tr><th>ครั้ง</th><th>วันที่</th><th>ประเภท</th><th>สถานะ</th></tr></thead><tbody>';
+  if (visits.length === 0) { div.innerHTML = '<p class="text-muted">ไม่มีประวัติ</p>'; }
+  else {
+    var html = '<table class="table table-sm"><thead><tr><th>ครั้ง</th><th>วันที่</th><th>ประเภท</th><th>สถานะ</th><th>จัดการ</th></tr></thead><tbody>';
     visits.forEach(v => {
-      html += '<tr><td><span class="visit-badge ' + vbCls(v.visit_number) + '">' + v.visit_number + '</span></td>';
-      html += '<td>' + fmtDate(v.date) + '</td>';
-      html += '<td>' + v.type + '</td>';
-      html += '<td class="' + stCls(v.status) + '">' + stTxt(v.status) + '</td></tr>';
+      html += '<tr><td><span class="visit-badge ' + vbCls(v['ครั้งที่']) + '">' + v['ครั้งที่'] + '</span></td>';
+      html += '<td>' + fmtDate(v['วันที่']) + '</td>';
+      html += '<td>' + v['ประเภท'] + '</td>';
+      html += '<td class="' + stCls(v['สถานะ']) + '">' + stTxt(v['สถานะ']) + '</td>';
+      html += '<td>';
+      if (v['สถานะ'] === 'scheduled') {
+        html += '<button class="btn btn-sm btn-outline-primary" onclick="editVisitFromHistory(' + v['ครั้งที่'] + ')">แก้ไข</button> ';
+        html += '<button class="btn btn-sm btn-outline-danger" onclick="deleteVisitFromHistory(' + v['ครั้งที่'] + ')">ลบ</button>';
+      }
+      html += '</td></tr>';
     });
     html += '</tbody></table>';
     div.innerHTML = html;
@@ -380,24 +404,67 @@ function openVisitHistory(hn, name) {
   new bootstrap.Modal(document.getElementById('visitHistoryModal')).show();
 }
 
-// ─── Monthly Report ───
+function editVisitFromHistory(visitNumber) {
+  var hn = document.getElementById('historyHN').textContent;
+  var content = document.getElementById('visitHistoryContent');
+  var rows = content.querySelectorAll('tr');
+  var targetRow = null;
+  rows.forEach(function(row) { var badge = row.querySelector('.visit-badge'); if (badge && parseInt(badge.textContent) === visitNumber) targetRow = row; });
+  if (!targetRow) return;
+  var dateCell = targetRow.children[1];
+  var typeCell = targetRow.children[2];
+  var currentDate = fmtDateToISO(dateCell.textContent);
+  var currentType = typeCell.textContent;
+  dateCell.innerHTML = '<input type="date" class="form-control form-control-sm" id="edit-hist-date-' + visitNumber + '" value="' + currentDate + '">';
+  typeCell.innerHTML = '<select class="form-select form-select-sm" id="edit-hist-type-' + visitNumber + '"><option>มาตรวจตามนัด</option><option>มาฟังผลเลือด</option><option>มาเติมยา</option><option>อื่นๆ</option></select>';
+  typeCell.querySelector('select').value = currentType;
+  var actionCell = targetRow.children[4];
+  actionCell.innerHTML = '<button class="btn btn-sm btn-success" onclick="saveVisitHistoryEdit(' + visitNumber + ')">บันทึก</button> <button class="btn btn-sm btn-outline-secondary" onclick="openVisitHistory(\\'' + hn + '\\',\\'' + document.getElementById('historyName').textContent + '\\')">ยกเลิก</button>';
+}
+
+function saveVisitHistoryEdit(visitNumber) {
+  var hn = document.getElementById('historyHN').textContent;
+  var newDate = document.getElementById('edit-hist-date-' + visitNumber).value;
+  var newType = document.getElementById('edit-hist-type-' + visitNumber).value;
+  if (!newDate || !newType) { showToast('กรุณากรอกข้อมูลให้ครบ', 'warning'); return; }
+  showLoading('กำลังบันทึก...');
+  writeToSheet('updateVisit', {hn: hn, visit_number: visitNumber, date: newDate, type: newType}).then(r => {
+    if (r.success) { showToast('บันทึกสำเร็จ', 'success'); openVisitHistory(hn, document.getElementById('historyName').textContent); loadPatients(); loadStats(); }
+    else showToast(r.error, 'error');
+  }).catch(e => showToast(e.message, 'error')).finally(hideLoading);
+}
+
+function deleteVisitFromHistory(visitNumber) {
+  var hn = document.getElementById('historyHN').textContent;
+  if (!confirm('ต้องการลบนัดครั้งที่ ' + visitNumber + ' ใช่ไหม?')) return;
+  showLoading('กำลังลบ...');
+  writeToSheet('deleteVisit', {hn: hn, visit_number: visitNumber}).then(r => {
+    if (r.success) { showToast('ลบสำเร็จ', 'success'); openVisitHistory(hn, document.getElementById('historyName').textContent); loadPatients(); loadStats(); }
+    else showToast(r.error, 'error');
+  }).catch(e => showToast(e.message, 'error')).finally(hideLoading);
+}
+
+function fmtDateToISO(thaiDate) {
+  if (!thaiDate) return '';
+  var months = {'ม.ค.':'01','ก.พ.':'02','มี.ค.':'03','เม.ย.':'04','พ.ค.':'05','มิ.ย.':'06','ก.ค.':'07','ส.ค.':'08','ก.ย.':'09','ต.ค.':'10','พ.ย.':'11','ธ.ค.':'12'};
+  var parts = thaiDate.split(' ');
+  if (parts.length === 3) { var day = parts[0]; var month = months[parts[1]] || '01'; var year = parseInt(parts[2]) - 543; return year + '-' + month + '-' + String(day).padStart(2, '0'); }
+  return thaiDate;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Monthly Report
+// ═══════════════════════════════════════════════════════════════
 function loadMonthlyReport() {
   var monthStr = document.getElementById('reportMonth').value;
   if (!monthStr) { showToast('กรุณาเลือกเดือน', 'warning'); return; }
-  
   var [year, month] = monthStr.split('-');
   var monthNames = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
   var monthName = monthNames[parseInt(month) - 1];
-  
-  var visits = allVisits.filter(v => {
-    var d = new Date(v.date);
-    return d.getFullYear() === parseInt(year) && (d.getMonth() + 1) === parseInt(month);
-  });
-  
-  var completed = visits.filter(v => v.status === 'completed');
-  var missed = visits.filter(v => v.status === 'missed');
-  var scheduled = visits.filter(v => v.status === 'scheduled');
-  
+  var visits = allVisits.filter(v => { var d = new Date(v['วันที่']); return d.getFullYear() === parseInt(year) && (d.getMonth() + 1) === parseInt(month); });
+  var completed = visits.filter(v => v['สถานะ'] === 'completed');
+  var missed = visits.filter(v => v['สถานะ'] === 'missed');
+  var scheduled = visits.filter(v => v['สถานะ'] === 'scheduled');
   var div = document.getElementById('reportContent');
   var html = '<div class="row mb-3">' +
     '<div class="col-md-3"><div class="stats-card"><div class="stats-number">' + visits.length + '</div><div class="stats-label">ทั้งหมด</div></div></div>' +
@@ -405,77 +472,48 @@ function loadMonthlyReport() {
     '<div class="col-md-3"><div class="stats-card"><div class="stats-number text-danger">' + missed.length + '</div><div class="stats-label">ผิดนัด</div></div></div>' +
     '<div class="col-md-3"><div class="stats-card"><div class="stats-number text-primary">' + scheduled.length + '</div><div class="stats-label">รอนัด</div></div></div>' +
     '</div>';
-  
   if (visits.length > 0) {
     html += '<h6>รายชื่อผู้ป่วยที่มาในเดือน' + monthName + ' ' + (parseInt(year) + 543) + '</h6>';
     html += '<table class="table table-sm"><thead><tr><th>HN</th><th>ชื่อ-สกุล</th><th>ครั้งที่</th><th>วันที่</th><th>ประเภท</th><th>สถานะ</th></tr></thead><tbody>';
-    visits.forEach(v => {
-      html += '<tr><td>' + v.hn + '</td><td>' + v.name + '</td><td>' + v.visit_number + '</td><td>' + fmtDate(v.date) + '</td><td>' + v.type + '</td><td class="' + stCls(v.status) + '">' + stTxt(v.status) + '</td></tr>';
-    });
+    visits.forEach(v => { html += '<tr><td>' + v['เลข HN'] + '</td><td>' + v['ชื่อ-สกุล'] + '</td><td>' + v['ครั้งที่'] + '</td><td>' + fmtDate(v['วันที่']) + '</td><td>' + v['ประเภท'] + '</td><td class="' + stCls(v['สถานะ']) + '">' + stTxt(v['สถานะ']) + '</td></tr>'; });
     html += '</tbody></table>';
-  } else {
-    html += '<p class="text-muted text-center">ไม่มีข้อมูลในเดือนนี้</p>';
-  }
-  
+  } else { html += '<p class="text-muted text-center">ไม่มีข้อมูลในเดือนนี้</p>'; }
   div.innerHTML = html;
 }
 
-// ─── PDF Export ───
+// ═══════════════════════════════════════════════════════════════
+// PDF Export
+// ═══════════════════════════════════════════════════════════════
 function exportPDF() {
   var monthStr = document.getElementById('reportMonth').value;
   if (!monthStr) { showToast('กรุณาเลือกเดือน', 'warning'); return; }
-  
   var [year, month] = monthStr.split('-');
   var monthNames = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
   var monthName = monthNames[parseInt(month) - 1];
-  
-  var visits = allVisits.filter(v => {
-    var d = new Date(v.date);
-    return d.getFullYear() === parseInt(year) && (d.getMonth() + 1) === parseInt(month);
-  });
-  
+  var visits = allVisits.filter(v => { var d = new Date(v['วันที่']); return d.getFullYear() === parseInt(year) && (d.getMonth() + 1) === parseInt(month); });
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
-  
   doc.setFontSize(16);
   doc.text('รายงานประจำเดือน' + monthName + ' ' + (parseInt(year) + 543), 105, 15, { align: 'center' });
   doc.setFontSize(12);
   doc.text('ระบบนัดคนไข้คลินิก NCD', 105, 22, { align: 'center' });
   doc.text('โรงพยาบาลส่งเสริมสุขภาพตำบลคลองสอง หมู่ 7', 105, 28, { align: 'center' });
-  
-  var completed = visits.filter(v => v.status === 'completed');
-  var missed = visits.filter(v => v.status === 'missed');
-  var scheduled = visits.filter(v => v.status === 'scheduled');
-  
+  var completed = visits.filter(v => v['สถานะ'] === 'completed');
+  var missed = visits.filter(v => v['สถานะ'] === 'missed');
+  var scheduled = visits.filter(v => v['สถานะ'] === 'scheduled');
   doc.setFontSize(11);
   doc.text('สรุป: ทั้งหมด ' + visits.length + ' คน | มาแล้ว ' + completed.length + ' | ผิดนัด ' + missed.length + ' | รอนัด ' + scheduled.length, 14, 38);
-  
   if (visits.length > 0) {
-    var tableData = visits.map(v => [
-      v.hn,
-      v.name,
-      v.visit_number,
-      fmtDate(v.date),
-      v.type,
-      stTxt(v.status)
-    ]);
-    
-    doc.autoTable({
-      startY: 45,
-      head: [['HN', 'ชื่อ-สกุล', 'ครั้งที่', 'วันที่', 'ประเภท', 'สถานะ']],
-      body: tableData,
-      theme: 'grid',
-      headStyles: { fillColor: [44, 122, 123] },
-      styles: { font: 'Sarabun', fontSize: 9 },
-      alternateRowStyles: { fillColor: [240, 255, 255] }
-    });
+    var tableData = visits.map(v => [v['เลข HN'], v['ชื่อ-สกุล'], v['ครั้งที่'], fmtDate(v['วันที่']), v['ประเภท'], stTxt(v['สถานะ'])]);
+    doc.autoTable({ startY: 45, head: [['HN', 'ชื่อ-สกุล', 'ครั้งที่', 'วันที่', 'ประเภท', 'สถานะ']], body: tableData, theme: 'grid', headStyles: { fillColor: [44, 122, 123] }, styles: { font: 'Sarabun', fontSize: 9 }, alternateRowStyles: { fillColor: [240, 255, 255] } });
   }
-  
   doc.save('รายงานประจำเดือน' + monthName + '_' + (parseInt(year) + 543) + '.pdf');
   showToast('ส่งออก PDF สำเร็จ', 'success');
 }
 
-// ─── Calendar navigation ───
+// ═══════════════════════════════════════════════════════════════
+// Calendar navigation
+// ═══════════════════════════════════════════════════════════════
 var calYear = new Date().getFullYear();
 var calMonth = new Date().getMonth();
 function changeMonth(delta) {
@@ -485,7 +523,9 @@ function changeMonth(delta) {
   renderCalendar();
 }
 
-// ─── Tabs ───
+// ═══════════════════════════════════════════════════════════════
+// Tabs
+// ═══════════════════════════════════════════════════════════════
 document.querySelectorAll('#mainTabs .nav-link').forEach(t => {
   t.addEventListener('click', () => {
     document.querySelectorAll('#mainTabs .nav-link').forEach(x => x.classList.remove('active'));
@@ -500,49 +540,32 @@ document.querySelectorAll('#mainTabs .nav-link').forEach(t => {
   });
 });
 
-// ─── Search ───
 document.getElementById('searchPatient').addEventListener('input', () => renderPatients(allPatients));
-
-// ─── Schedule date ───
 document.getElementById('scheduleDate').addEventListener('change', () => loadSchedule());
 
-// ─── Register Form ───
+// ═══════════════════════════════════════════════════════════════
+// Register Form
+// ═══════════════════════════════════════════════════════════════
 document.getElementById('registerForm').addEventListener('submit', async function(e) {
   e.preventDefault();
-  var d = {
-    hn: document.getElementById('regHN').value.trim(),
-    name: document.getElementById('regName').value.trim(),
-    phone: document.getElementById('regPhone').value.trim(),
-    visitDate: document.getElementById('regDate').value,
-    visitType: document.getElementById('regType').value,
-    notes: document.getElementById('regNote').value.trim(),
-    intervalMonths: document.getElementById('regInterval').value
-  };
-  if (!d.hn || !d.name || !d.visitDate || !d.visitType) {
-    showToast('กรอกข้อมูลให้ครบ', 'warning');
-    return;
-  }
+  var d = { hn: document.getElementById('regHN').value.trim(), name: document.getElementById('regName').value.trim(), phone: document.getElementById('regPhone').value.trim(), visitDate: document.getElementById('regDate').value, visitType: document.getElementById('regType').value, notes: document.getElementById('regNote').value.trim(), intervalMonths: document.getElementById('regInterval').value };
+  if (!d.hn || !d.name || !d.visitDate || !d.visitType) { showToast('กรอกข้อมูลให้ครบ', 'warning'); return; }
   if (!d.phone) d.phone = '-';
-  if (d.phone !== '-' && !/^0\d{9}$/.test(d.phone)) {
-    showToast('เบอร์โทรไม่ถูกต้อง หรือใส่ - ถ้าไม่มี', 'warning');
-    return;
-  }
-  
-  // Show data for manual entry
-  var dataText = 'กรุณาคัดลอกข้อมูลนี้ไปบันทึกใน Google Sheet:\n\n' +
-    'HN: ' + d.hn + '\n' +
-    'ชื่อ-สกุล: ' + d.name + '\n' +
-    'โทร: ' + d.phone + '\n' +
-    'วันที่มา: ' + d.visitDate + '\n' +
-    'ประเภท: ' + d.visitType + '\n' +
-    'ช่วงห่างนัด: ' + d.intervalMonths + ' เดือน\n' +
-    'หมายเหตุ: ' + (d.notes || '-');
-  
-  showToast('กรุณาบันทึกข้อมูลใน Google Sheet', 'info');
-  alert(dataText);
+  if (d.phone !== '-' && !/^0\\d{9}$/.test(d.phone)) { showToast('เบอร์โทรไม่ถูกต้อง หรือใส่ - ถ้าไม่มี', 'warning'); return; }
+  showLoading('กำลังลงทะเบียน...');
+  try {
+    var r = await writeToSheet('registerPatient', d);
+    if (r.error) { showToast(r.error, 'error'); return; }
+    showToast('ลงทะเบียนสำเร็จ!', 'success');
+    e.target.reset();
+    loadAllData();
+  } catch (err) { showToast(err.message, 'error'); }
+  finally { hideLoading(); }
 });
 
-// ─── Init ───
+// ═══════════════════════════════════════════════════════════════
+// Init
+// ═══════════════════════════════════════════════════════════════
 (function() {
   var n = new Date();
   var fy = n.getMonth() >= 9 ? n.getFullYear() + 544 : n.getFullYear() + 543;
