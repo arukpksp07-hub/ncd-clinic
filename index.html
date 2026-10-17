@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ระบบนัดคนไข้คลินิก NCD</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+  <style>
+    :root { --teal: #2c7a7b; --teal-dark: #234e52; --teal-light: #e6fffa; }
+    * { font-family: 'Sarabun', sans-serif; }
+    body { background: #f8f9fa; }
+    .navbar-custom { background: linear-gradient(135deg, var(--teal), var(--teal-dark)); color: #fff; padding: 1rem; box-shadow: 0 2px 10px rgba(0,0,0,.15); }
+    .navbar-custom h1 { font-size: 1.3rem; margin: 0; font-weight: 600; }
+    .navbar-custom .subtitle { font-size: .85rem; opacity: .9; }
+    .badge-custom { background: rgba(255,255,255,.2); padding: .3rem .8rem; border-radius: 20px; font-size: .75rem; }
+    .card { border: none; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.08); margin-bottom: 1.5rem; }
+    .card-header { background: var(--teal); color: #fff; font-weight: 600; border-radius: 12px 12px 0 0 !important; padding: .8rem 1.2rem; }
+    .stats-card { text-align: center; padding: 1.2rem; border-radius: 12px; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+    .stats-number { font-size: 2.2rem; font-weight: 700; color: var(--teal); line-height: 1.2; }
+    .stats-label { color: #6c757d; font-size: .85rem; }
+    .btn-custom { background: var(--teal); border-color: var(--teal); color: #fff; }
+    .btn-custom:hover { background: var(--teal-dark); border-color: var(--teal-dark); }
+    .visit-badge { display: inline-block; padding: .2rem .6rem; border-radius: 15px; font-size: .8rem; font-weight: 600; }
+    .visit-1 { background:#e3f2fd;color:#1565c0; } .visit-2 { background:#f3e5f5;color:#7b1fa2; }
+    .visit-3 { background:#e8f5e9;color:#2e7d32; } .visit-4 { background:#fff3e0;color:#ef6c00; }
+    .visit-5 { background:#fce4ec;color:#c2185b; } .visit-6 { background:#e0f2f1;color:#00695c; }
+    .status-completed { color:#28a745;font-weight:600; } .status-missed { color:#dc3545;font-weight:600; } .status-scheduled { color:#007bff;font-weight:600; }
+    .table th { background: var(--teal-light); font-weight: 600; font-size: .85rem; white-space: nowrap; }
+    .table td { font-size: .85rem; vertical-align: middle; }
+    .loading-overlay { display: none; position: fixed; top:0;left:0;right:0;bottom:0; background:rgba(255,255,255,.85); z-index:9999; justify-content:center; align-items:center; }
+    .loading-overlay.show { display: flex; }
+    .spinner { width:50px;height:50px;border:4px solid var(--teal-light);border-top-color:var(--teal);border-radius:50%;animation:spin 1s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .tab-content { display:none; padding-top:1rem; } .tab-content.active { display:block; }
+    .nav-tabs .nav-link { color:var(--teal);font-weight:500; } .nav-tabs .nav-link.active { background:var(--teal);color:#fff;border-color:var(--teal); }
+    .progress { height:24px; border-radius:12px; background:#e9ecef; overflow:hidden; }
+    .progress-bar { border-radius:12px; font-weight:600; font-size:.85rem; line-height:24px; }
+    .toast-container { position:fixed; top:20px; right:20px; z-index:9999; }
+    .toast { min-width:300px; margin-bottom:10px; }
+    .footer { text-align:center; padding:1rem; color:#6c757d; font-size:.8rem; }
+    .calendar-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:2px; }
+    .calendar-day { min-height:80px; border:1px solid #dee2e6; padding:4px; font-size:.8rem; position:relative; }
+    .calendar-day.header { min-height:30px; text-align:center; font-weight:600; background:var(--teal-light); }
+    .calendar-day.other-month { background:#f8f9fa; color:#adb5bd; }
+    .calendar-day.today { background:#fff3cd; }
+    .calendar-day .day-num { font-weight:600; margin-bottom:2px; }
+    .calendar-day .apt-count { font-size:.75rem; }
+    .calendar-day .apt-count.full { color:#dc3545; }
+    .calendar-day .apt-count.available { color:#28a745; }
+  </style>
+</head>
+<body>
+<div class="loading-overlay" id="loadingOverlay"><div class="text-center"><div class="spinner"></div><p id="loadingText" class="mt-3 text-muted">กำลังโหลด...</p></div></div>
+
+<nav class="navbar-custom"><div class="container"><div class="d-flex justify-content-between align-items-center flex-wrap">
+  <div><h1><i class="bi bi-hospital"></i> ระบบนัดคนไข้คลินิก NCD</h1>
+  <div class="subtitle">โรงพยาบาลส่งเสริมสุขภาพตำบลคลองสอง หมู่ 7</div></div>
+  <div class="d-flex gap-2 flex-wrap">
+    <span class="badge-custom"><i class="bi bi-calendar-check"></i> ปีงบประมาณ <span id="fyDisplay">2570</span></span>
+    <span class="badge-custom"><i class="bi bi-person-badge"></i> น.ส.ปิยะนันท์ ขันแข็ง</span>
+  </div>
+</div></nav></div>
+
+<div class="container mt-3">
+<div class="row mb-3">
+  <div class="col-6 col-md-3"><div class="stats-card"><div class="stats-number" id="statPatients">0</div><div class="stats-label">คนไข้ทั้งหมด</div></div></div>
+  <div class="col-6 col-md-3"><div class="stats-card"><div class="stats-number" id="statScheduled">0</div><div class="stats-label">รอนัด</div></div></div>
+  <div class="col-6 col-md-3"><div class="stats-card"><div class="stats-number" id="statCompleted">0</div><div class="stats-label">มาแล้ว</div></div></div>
+  <div class="col-6 col-md-3"><div class="stats-card"><div class="stats-number" id="statMissed">0</div><div class="stats-label">ผิดนัด</div></div></div>
+</div>
+
+<ul class="nav nav-tabs" id="mainTabs">
+  <li class="nav-item"><a class="nav-link active" data-tab="register"><i class="bi bi-person-plus"></i> ลงทะเบียน</a></li>
+  <li class="nav-item"><a class="nav-link" data-tab="patients"><i class="bi bi-people"></i> รายชื่อ</a></li>
+  <li class="nav-item"><a class="nav-link" data-tab="schedule"><i class="bi bi-calendar-week"></i> ตารางนัด</a></li>
+  <li class="nav-item"><a class="nav-link" data-tab="calendar"><i class="bi bi-calendar3"></i> ปฏิทิน</a></li>
+  <li class="nav-item"><a class="nav-link" data-tab="report"><i class="bi bi-file-earmark-text"></i> รายงาน</a></li>
+</ul>
+
+<!-- Tab 1: Register -->
+<div class="tab-content active" id="tab-register">
+  <div class="card"><div class="card-header"><i class="bi bi-person-plus"></i> ลงทะเบียน + สร้างนัดถัดไป</div>
+  <div class="card-body">
+    <form id="registerForm">
+      <div class="row">
+        <div class="col-md-4 mb-3"><label>เลข HN *</label><input type="text" class="form-control" id="regHN" required></div>
+        <div class="col-md-4 mb-3"><label>ชื่อ-สกุล *</label><input type="text" class="form-control" id="regName" required></div>
+        <div class="col-md-4"><label>เบอร์โทร</label><input type="text" class="form-control" id="regPhone" placeholder="0812345678 หรือ - (ถ้าไม่มี)"></div>
+      </div>
+      <div class="row">
+        <div class="col-md-4 mb-3"><label>วันที่มา *</label><input type="date" class="form-control" id="regDate" required></div>
+        <div class="col-md-4 mb-3"><label>ประเภทการมา *</label>
+          <select class="form-select" id="regType" required>
+            <option value="">-- เลือก --</option>
+            <option>มาตรวจตามนัด</option><option>มาฟังผลเลือด</option><option>มาเติมยา</option><option>อื่นๆ</option>
+          </select>
+        </div>
+        <div class="col-md-4 mb-3"><label>ช่วงห่างนัด</label>
+          <select class="form-select" id="regInterval">
+            <option value="1">ทุกเดือน</option>
+            <option value="2" selected>ทุก 2 เดือน</option>
+            <option value="3">ทุก 3 เดือน</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div class="col-md-4 mb-3"><label>หมายเหตุ</label><input type="text" class="form-control" id="regNote"></div>
+      </div>
+      <hr>
+      <button type="submit" class="btn btn-custom btn-lg"><i class="bi bi-save"></i> ลงทะเบียน + สร้างนัดอัตโนมัติ</button>
+    </form>
+    <div id="registerResult" class="mt-3"></div>
+  </div></div>
+</div>
+
+<!-- Tab 2: Patients -->
+<div class="tab-content" id="tab-patients">
+  <div class="card"><div class="card-header"><i class="bi bi-people"></i> รายชื่อผู้ป่วย
+      <span class="float-end d-flex gap-2">
+        <input type="text" class="form-control form-control-sm d-inline-block w-auto" id="searchPatient" placeholder="ค้นหา...">
+      </span>
+    </div>
+  <div class="card-body">
+    <div class="table-responsive"><table class="table table-hover">
+      <thead><tr><th>HN</th><th>ชื่อ-สกุล</th><th>โทร</th><th>คืบหน้า</th><th>นัดถัดไป</th><th>สถานะ</th><th>จัดการ</th></tr></thead>
+      <tbody id="patientsTable"></tbody>
+    </table></div>
+  </div></div>
+</div>
+
+<!-- Tab 3: Schedule -->
+<div class="tab-content" id="tab-schedule">
+  <div class="card"><div class="card-header"><i class="bi bi-calendar-week"></i> ตารางนัด</div>
+  <div class="card-body">
+    <div class="row mb-3">
+      <div class="col-md-4"><label>เลือกวัน</label><input type="date" class="form-control" id="scheduleDate"></div>
+      <div class="col-md-4"><label>ความจุ</label><div class="progress mt-2"><div class="progress-bar bg-success" id="capacityBar" style="width:0%">0/30</div></div></div>
+    </div>
+    <div id="scheduleContent"></div>
+  </div></div>
+</div>
+
+<!-- Tab 4: Calendar -->
+<div class="tab-content" id="tab-calendar">
+  <div class="card"><div class="card-header"><i class="bi bi-calendar3"></i> ปฏิทินนัดหมาย</div>
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <button class="btn btn-outline-primary btn-sm" onclick="changeMonth(-1)"><i class="bi bi-chevron-left"></i></button>
+      <h5 id="calendarTitle" class="mb-0"></h5>
+      <button class="btn btn-outline-primary btn-sm" onclick="changeMonth(1)"><i class="bi bi-chevron-right"></i></button>
+    </div>
+    <div class="calendar-grid" id="calendarGrid"></div>
+  </div></div>
+</div>
+
+<!-- Tab 5: Report -->
+<div class="tab-content" id="tab-report">
+  <div class="card"><div class="card-header"><i class="bi bi-file-earmark-text"></i> รายงานประจำเดือน</div>
+  <div class="card-body">
+    <div class="row mb-3">
+      <div class="col-md-4"><label>เลือกเดือน</label><input type="month" class="form-control" id="reportMonth"></div>
+      <div class="col-md-4"><label>&nbsp;</label><button class="btn btn-custom w-100" onclick="loadMonthlyReport()"><i class="bi bi-search"></i> ดูรายงาน</button></div>
+      <div class="col-md-4"><label>&nbsp;</label><button class="btn btn-danger w-100" onclick="exportPDF()"><i class="bi bi-file-earmark-pdf"></i> ส่งออก PDF</button></div>
+    </div>
+    <div id="reportContent"></div>
+  </div></div>
+</div>
+
+<div class="footer">ระบบนัดคนไข้คลินิก NCD | รพ.สต.คลองสอง หมู่ 7<br>ผู้จัดทำ: นางสาวปิยะนันท์ ขันแข็ง</div>
+</div>
+
+<!-- Visit History Modal -->
+<div class="modal fade" id="visitHistoryModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-header"><h5>ประวัติการนัด</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <p>ประวัติสำหรับ <strong id="historyName"></strong> (HN: <span id="historyHN"></span>)</p>
+    <div id="visitHistoryContent"></div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-outline-secondary" data-bs-dismiss="modal">ปิด</button>
+  </div>
+</div></div></div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// ─── Config ───
+const API_KEY = 'AIzaSyDK_xt-PFOK5kx3rnE-YRyfGyffHDRcEos';
+const SHEET_ID = '1iTTjjrjcYwLwj0_FiRcbIfu3Lo-rJz7ba_6QZuyyCWM';
+const SHEET_PATIENTS = 'ชีต1';
+const SHEET_VISITS = 'ประวัติ';
+
+// ─── State ───
+let allPatients = [];
+let allVisits = [];
+
+// ─── Helpers ───
+function showLoading(t){document.getElementById('loadingText').textContent=t||'กำลังโหลด...';document.getElementById('loadingOverlay').classList.add('show');}
+function hideLoading(){document.getElementById('loadingOverlay').classList.remove('show');}
+function showToast(m,t){var c={success:'bg-success',error:'bg-danger',warning:'bg-warning',info:'bg-info'};var i={success:'bi-check-circle',error:'bi-x-circle',warning:'bi-exclamation-triangle',info:'bi-info-circle'};var id='toast-'+Date.now();var h='<div class="toast align-items-center text-white '+(c[t]||'bg-info')+' border-0" id="'+id+'"><div class="d-flex"><div class="toast-body"><i class="bi '+(i[t]||'bi-info-circle')+' me-2"></i>'+m+'</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div></div>';document.getElementById('toastContainer').insertAdjacentHTML('beforeend',h);new bootstrap.Toast(document.getElementById(id),{delay:5000}).show();}
+function fmtDate(d){if(!d)return'-';var dt=new Date(d);return dt.toLocaleDateString('th-TH',{year:'numeric',month:'short',day:'numeric'});}
+function vbCls(n){return'visit-'+n;}
+function stTxt(s){return{completed:'มาแล้ว',missed:'ผิดนัด',scheduled:'รอนัด'}[s]||s;}
+function stCls(s){return'status-'+s;}
+
+// ─── Read from Google Sheets via API v4 ───
+async function readSheet(sheetName) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(sheetName)}?key=${API_KEY}`;
+  const resp = await fetch(url);
+  if (!resp.ok) {
+    const errorText = await resp.text();
+    console.error('API error:', resp.status, errorText);
+    throw new Error('Failed to read sheet: ' + resp.status + ' - ' + errorText.substring(0, 200));
+  }
+  const data = await resp.json();
+  const rows = data.values || [];
+  if (rows.length === 0) return { headers: [], data: [] };
+  const headers = rows[0];
+  const dataRows = rows.slice(1).map(row => {
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = row[i] || ''; });
+    return obj;
+  });
+  return { headers, data: dataRows };
+}
+
+// ─── Load all data ───
+async function loadAllData() {
+  showLoading('กำลังโหลดข้อมูล...');
+  try {
+    const [patientsRes, visitsRes] = await Promise.all([
+      readSheet(SHEET_PATIENTS),
+      readSheet(SHEET_VISITS)
+    ]);
+    
+    allPatients = patientsRes.data.map(p => ({
+      hn: String(p['เลข HN'] || ''),
+      name: String(p['ชื่อ-สกุล'] || ''),
+      phone: String(p['เบอร์โทร'] || '-'),
+      max_visit: parseInt(p['มาแล้ว (ครั้ง)']) || 0,
+      last_visit: String(p['วันที่มาล่าสุด'] || ''),
+      next_date: String(p['วันนัดถัดไป'] || ''),
+      next_type: String(p['ประเภทนัดถัดไป'] || ''),
+      next_status: String(p['สถานะนัดถัดไป'] || ''),
+      fiscal_year: String(p['ปีงบประมาณ'] || ''),
+      notes: String(p['หมายเหตุ'] || ''),
+      updated: String(p['อัปเดตล่าสุด'] || '')
+    })).filter(p => p.hn);
+    
+    allVisits = visitsRes.data.map(v => ({
+      hn: String(v['เลข HN'] || ''),
+      name: String(v['ชื่อ-สกุล'] || ''),
+      visit_number: parseInt(v['ครั้งที่']) || 0,
+      date: String(v['วันที่'] || ''),
+      type: String(v['ประเภท'] || ''),
+      status: String(v['สถานะ'] || ''),
+      notes: String(v['หมายเหตุ'] || ''),
+      updated: String(v['อัปเดตล่าสุด'] || '')
+    })).filter(v => v.hn);
+    
+    renderStats();
+    renderPatients(allPatients);
+    renderCalendar();
+    hideLoading();
+  } catch(e) {
+    console.error(e);
+    showToast('โหลดข้อมูลไม่สำเร็จ: ' + e.message, 'error');
+    hideLoading();
+  }
+}
+
+// ─── Render ───
+function renderStats() {
+  document.getElementById('statPatients').textContent = allPatients.length;
+  document.getElementById('statScheduled').textContent = allVisits.filter(v => v.status === 'scheduled').length;
+  document.getElementById('statCompleted').textContent = allVisits.filter(v => v.status === 'completed').length;
+  document.getElementById('statMissed').textContent = allVisits.filter(v => v.status === 'missed').length;
+}
+
+function renderPatients(patients) {
+  var tbody = document.getElementById('patientsTable');
+  var search = (document.getElementById('searchPatient').value || '').toLowerCase();
+  var filtered = patients.filter(p => p.hn.toLowerCase().includes(search) || p.name.toLowerCase().includes(search));
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">ไม่พบข้อมูล</td></tr>';
+    return;
+  }
+  tbody.innerHTML = filtered.map(p => {
+    var pct = Math.round((p.max_visit / 6) * 100);
+    var bc = pct >= 100 ? 'bg-success' : pct >= 50 ? 'bg-warning' : 'bg-danger';
+    return '<tr><td>' + p.hn + '</td><td>' + p.name + '</td><td>' + p.phone + '</td>' +
+      '<td><div class="progress"><div class="progress-bar ' + bc + '" style="width:' + pct + '%">' + p.max_visit + '/6</div></div></td>' +
+      '<td>' + fmtDate(p.next_date) + '</td>' +
+      '<td class="' + stCls(p.next_status) + '">' + stTxt(p.next_status) + '</td>' +
+      '<td><button class="btn btn-sm btn-info" onclick="openVisitHistory(\'' + p.hn + '\',\'' + p.name + '\')">ประวัติ</button></td></tr>';
+  }).join('');
+}
+
+function renderCalendar() {
+  var today = new Date();
+  var year = today.getFullYear();
+  var month = today.getMonth();
+  var monthNames = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+  document.getElementById('calendarTitle').textContent = monthNames[month] + ' ' + (year + 543);
+  
+  var grid = document.getElementById('calendarGrid');
+  var html = '';
+  var dayNames = ['อา','จ','อ','พ','พฤ','ศ','ส'];
+  dayNames.forEach(d => { html += '<div class="calendar-day header">' + d + '</div>'; });
+  
+  var firstDay = new Date(year, month, 1).getDay();
+  var daysInMonth = new Date(year, month + 1, 0).getDate();
+  var daysInPrevMonth = new Date(year, month, 0).getDate();
+  var todayStr = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+  
+  for (var i = firstDay - 1; i >= 0; i--) {
+    html += '<div class="calendar-day other-month"><div class="day-num">' + (daysInPrevMonth - i) + '</div></div>';
+  }
+  for (var day = 1; day <= daysInMonth; day++) {
+    var dateStr = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+    var dayVisits = allVisits.filter(v => v.date === dateStr);
+    var count = dayVisits.length;
+    var isToday = dateStr === todayStr;
+    var countHtml = '';
+    if (count > 0) {
+      var pct = Math.round((count / 30) * 100);
+      var cls = pct >= 100 ? 'full' : 'available';
+      countHtml = '<div class="apt-count ' + cls + '">' + count + '/30</div>';
+    }
+    html += '<div class="calendar-day' + (isToday ? ' today' : '') + '"><div class="day-num">' + day + '</div>' + countHtml + '</div>';
+  }
+  grid.innerHTML = html;
+}
+
+// ─── Schedule ───
+function loadSchedule() {
+  var date = document.getElementById('scheduleDate').value;
+  if (!date) return;
+  var appointments = allVisits.filter(v => v.date === date);
+  var scheduledCount = appointments.filter(v => v.status === 'scheduled').length;
+  var pct = Math.round((scheduledCount / 30) * 100);
+  document.getElementById('capacityBar').style.width = pct + '%';
+  document.getElementById('capacityBar').textContent = scheduledCount + '/30';
+  document.getElementById('capacityBar').className = 'progress-bar ' + (pct >= 100 ? 'bg-danger' : pct >= 80 ? 'bg-warning' : 'bg-success');
+  
+  var div = document.getElementById('scheduleContent');
+  if (appointments.length === 0) {
+    div.innerHTML = '<p class="text-muted text-center">ไม่มีการนัด</p>';
+    return;
+  }
+  div.innerHTML = '<table class="table table-sm"><thead><tr><th>ครั้ง</th><th>HN</th><th>ชื่อ</th><th>ประเภท</th><th>สถานะ</th></tr></thead><tbody>' +
+    appointments.map(a => '<tr><td><span class="visit-badge ' + vbCls(a.visit_number) + '">' + a.visit_number + '</span></td><td>' + a.hn + '</td><td>' + a.name + '</td><td>' + a.type + '</td><td class="' + stCls(a.status) + '">' + stTxt(a.status) + '</td></tr>').join('') +
+    '</tbody></table>';
+}
+
+// ─── Visit History ───
+function openVisitHistory(hn, name) {
+  document.getElementById('historyName').textContent = name;
+  document.getElementById('historyHN').textContent = hn;
+  var visits = allVisits.filter(v => v.hn === hn).sort((a, b) => a.visit_number - b.visit_number);
+  var div = document.getElementById('visitHistoryContent');
+  if (visits.length === 0) {
+    div.innerHTML = '<p class="text-muted">ไม่มีประวัติ</p>';
+  } else {
+    var html = '<table class="table table-sm"><thead><tr><th>ครั้ง</th><th>วันที่</th><th>ประเภท</th><th>สถานะ</th></tr></thead><tbody>';
+    visits.forEach(v => {
+      html += '<tr><td><span class="visit-badge ' + vbCls(v.visit_number) + '">' + v.visit_number + '</span></td>';
+      html += '<td>' + fmtDate(v.date) + '</td>';
+      html += '<td>' + v.type + '</td>';
+      html += '<td class="' + stCls(v.status) + '">' + stTxt(v.status) + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    div.innerHTML = html;
+  }
+  new bootstrap.Modal(document.getElementById('visitHistoryModal')).show();
+}
+
+// ─── Monthly Report ───
+function loadMonthlyReport() {
+  var monthStr = document.getElementById('reportMonth').value;
+  if (!monthStr) { showToast('กรุณาเลือกเดือน', 'warning'); return; }
+  
+  var [year, month] = monthStr.split('-');
+  var monthNames = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+  var monthName = monthNames[parseInt(month) - 1];
+  
+  var visits = allVisits.filter(v => {
+    var d = new Date(v.date);
+    return d.getFullYear() === parseInt(year) && (d.getMonth() + 1) === parseInt(month);
+  });
+  
+  var completed = visits.filter(v => v.status === 'completed');
+  var missed = visits.filter(v => v.status === 'missed');
+  var scheduled = visits.filter(v => v.status === 'scheduled');
+  
+  var div = document.getElementById('reportContent');
+  var html = '<div class="row mb-3">' +
+    '<div class="col-md-3"><div class="stats-card"><div class="stats-number">' + visits.length + '</div><div class="stats-label">ทั้งหมด</div></div></div>' +
+    '<div class="col-md-3"><div class="stats-card"><div class="stats-number text-success">' + completed.length + '</div><div class="stats-label">มาแล้ว</div></div></div>' +
+    '<div class="col-md-3"><div class="stats-card"><div class="stats-number text-danger">' + missed.length + '</div><div class="stats-label">ผิดนัด</div></div></div>' +
+    '<div class="col-md-3"><div class="stats-card"><div class="stats-number text-primary">' + scheduled.length + '</div><div class="stats-label">รอนัด</div></div></div>' +
+    '</div>';
+  
+  if (visits.length > 0) {
+    html += '<h6>รายชื่อผู้ป่วยที่มาในเดือน' + monthName + ' ' + (parseInt(year) + 543) + '</h6>';
+    html += '<table class="table table-sm"><thead><tr><th>HN</th><th>ชื่อ-สกุล</th><th>ครั้งที่</th><th>วันที่</th><th>ประเภท</th><th>สถานะ</th></tr></thead><tbody>';
+    visits.forEach(v => {
+      html += '<tr><td>' + v.hn + '</td><td>' + v.name + '</td><td>' + v.visit_number + '</td><td>' + fmtDate(v.date) + '</td><td>' + v.type + '</td><td class="' + stCls(v.status) + '">' + stTxt(v.status) + '</td></tr>';
+    });
+    html += '</tbody></table>';
+  } else {
+    html += '<p class="text-muted text-center">ไม่มีข้อมูลในเดือนนี้</p>';
+  }
+  
+  div.innerHTML = html;
+}
+
+// ─── PDF Export ───
+function exportPDF() {
+  var monthStr = document.getElementById('reportMonth').value;
+  if (!monthStr) { showToast('กรุณาเลือกเดือน', 'warning'); return; }
+  
+  var [year, month] = monthStr.split('-');
+  var monthNames = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+  var monthName = monthNames[parseInt(month) - 1];
+  
+  var visits = allVisits.filter(v => {
+    var d = new Date(v.date);
+    return d.getFullYear() === parseInt(year) && (d.getMonth() + 1) === parseInt(month);
+  });
+  
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  
+  doc.setFontSize(16);
+  doc.text('รายงานประจำเดือน' + monthName + ' ' + (parseInt(year) + 543), 105, 15, { align: 'center' });
+  doc.setFontSize(12);
+  doc.text('ระบบนัดคนไข้คลินิก NCD', 105, 22, { align: 'center' });
+  doc.text('โรงพยาบาลส่งเสริมสุขภาพตำบลคลองสอง หมู่ 7', 105, 28, { align: 'center' });
+  
+  var completed = visits.filter(v => v.status === 'completed');
+  var missed = visits.filter(v => v.status === 'missed');
+  var scheduled = visits.filter(v => v.status === 'scheduled');
+  
+  doc.setFontSize(11);
+  doc.text('สรุป: ทั้งหมด ' + visits.length + ' คน | มาแล้ว ' + completed.length + ' | ผิดนัด ' + missed.length + ' | รอนัด ' + scheduled.length, 14, 38);
+  
+  if (visits.length > 0) {
+    var tableData = visits.map(v => [
+      v.hn,
+      v.name,
+      v.visit_number,
+      fmtDate(v.date),
+      v.type,
+      stTxt(v.status)
+    ]);
+    
+    doc.autoTable({
+      startY: 45,
+      head: [['HN', 'ชื่อ-สกุล', 'ครั้งที่', 'วันที่', 'ประเภท', 'สถานะ']],
+      body: tableData,
+      theme: 'grid',
+      headStyles: { fillColor: [44, 122, 123] },
+      styles: { font: 'Sarabun', fontSize: 9 },
+      alternateRowStyles: { fillColor: [240, 255, 255] }
+    });
+  }
+  
+  doc.save('รายงานประจำเดือน' + monthName + '_' + (parseInt(year) + 543) + '.pdf');
+  showToast('ส่งออก PDF สำเร็จ', 'success');
+}
+
+// ─── Calendar navigation ───
+var calYear = new Date().getFullYear();
+var calMonth = new Date().getMonth();
+function changeMonth(delta) {
+  calMonth += delta;
+  if (calMonth < 0) { calMonth = 11; calYear--; }
+  if (calMonth > 11) { calMonth = 0; calYear++; }
+  renderCalendar();
+}
+
+// ─── Tabs ───
+document.querySelectorAll('#mainTabs .nav-link').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('#mainTabs .nav-link').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    var tgt = document.querySelector('#tab-' + t.dataset.tab);
+    if (tgt) tgt.classList.add('active');
+    if (t.dataset.tab === 'patients') renderPatients(allPatients);
+    if (t.dataset.tab === 'schedule') loadSchedule();
+    if (t.dataset.tab === 'calendar') renderCalendar();
+    if (t.dataset.tab === 'report') loadMonthlyReport();
+  });
+});
+
+// ─── Search ───
+document.getElementById('searchPatient').addEventListener('input', () => renderPatients(allPatients));
+
+// ─── Schedule date ───
+document.getElementById('scheduleDate').addEventListener('change', () => loadSchedule());
+
+// ─── Register Form ───
+document.getElementById('registerForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  var d = {
+    hn: document.getElementById('regHN').value.trim(),
+    name: document.getElementById('regName').value.trim(),
+    phone: document.getElementById('regPhone').value.trim(),
+    visitDate: document.getElementById('regDate').value,
+    visitType: document.getElementById('regType').value,
+    notes: document.getElementById('regNote').value.trim(),
+    intervalMonths: document.getElementById('regInterval').value
+  };
+  if (!d.hn || !d.name || !d.visitDate || !d.visitType) {
+    showToast('กรอกข้อมูลให้ครบ', 'warning');
+    return;
+  }
+  if (!d.phone) d.phone = '-';
+  if (d.phone !== '-' && !/^0\d{9}$/.test(d.phone)) {
+    showToast('เบอร์โทรไม่ถูกต้อง หรือใส่ - ถ้าไม่มี', 'warning');
+    return;
+  }
+  
+  // Show data for manual entry
+  var dataText = 'กรุณาคัดลอกข้อมูลนี้ไปบันทึกใน Google Sheet:\n\n' +
+    'HN: ' + d.hn + '\n' +
+    'ชื่อ-สกุล: ' + d.name + '\n' +
+    'โทร: ' + d.phone + '\n' +
+    'วันที่มา: ' + d.visitDate + '\n' +
+    'ประเภท: ' + d.visitType + '\n' +
+    'ช่วงห่างนัด: ' + d.intervalMonths + ' เดือน\n' +
+    'หมายเหตุ: ' + (d.notes || '-');
+  
+  showToast('กรุณาบันทึกข้อมูลใน Google Sheet', 'info');
+  alert(dataText);
+});
+
+// ─── Init ───
+(function() {
+  var n = new Date();
+  var fy = n.getMonth() >= 9 ? n.getFullYear() + 544 : n.getFullYear() + 543;
+  document.getElementById('fyDisplay').textContent = fy;
+  document.getElementById('scheduleDate').value = new Date().toISOString().split('T')[0];
+  var now = new Date();
+  document.getElementById('reportMonth').value = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  loadAllData();
+});
+</script>
+</body>
+</html>
